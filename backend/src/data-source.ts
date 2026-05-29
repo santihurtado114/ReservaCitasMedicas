@@ -27,5 +27,5 @@ export default new DataSource({
     AppointmentHistory,
   ],
   migrations: ['src/migrations/*.ts'],
-  synchronize: false,
+  synchronize: true,
 });

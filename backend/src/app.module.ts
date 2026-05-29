@@ -61,7 +61,7 @@ import { TypeOrmAppointmentHistoryRepository } from './infrastructure/persistenc
           DoctorException,
           AppointmentHistory,
         ],
-        synchronize: false,
+        synchronize: true,
         logging: true,
       }),
     }),
