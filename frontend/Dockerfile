@@ -1,22 +1,36 @@
-FROM node:20-alpine AS build
-RUN npm install -g pnpm
-WORKDIR /app
-COPY package.json ./
-RUN pnpm install
-COPY . .
-RUN pnpm run build && pnpm store prune
+# Build stage
+FROM node:20-alpine AS builder
 
-FROM nginx:alpine AS runtime
-RUN apk add --no-cache gettext && \
-    addgroup -g 1001 -S app && adduser -S app -u 1001 -G app && \
-    rm -f /etc/nginx/conf.d/default.conf && \
-    mkdir -p /tmp/nginx && chown app:app /tmp/nginx
-COPY --from=build --chown=app:app /app/dist/frontend /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/nginx.conf
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
-EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:80/ || exit 1
-USER app
-ENTRYPOINT ["/docker-entrypoint.sh"]
+# Install pnpm
+RUN npm install -g pnpm
+
+WORKDIR /app
+
+# Copy workspace files
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+
+# Copy frontend
+COPY frontend ./frontend
+COPY shared ./shared
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Build frontend
+RUN pnpm --filter frontend build
+
+# Runtime stage
+FROM node:20-alpine
+
+# Install pnpm and serve
+RUN npm install -g pnpm serve
+
+WORKDIR /app
+
+# Copy built application from builder
+COPY --from=builder /app/frontend/dist ./frontend/dist
+
+EXPOSE 4200
+
+CMD ["serve", "-s", "frontend/dist", "-l", "4200"]
+
