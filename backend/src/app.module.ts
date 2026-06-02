@@ -1,12 +1,15 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
 import { Doctor } from './domain/entities/doctor.entity';
 import { Patient } from './domain/entities/patient.entity';
 import { Appointment } from './domain/entities/appointment.entity';
-import { Config } from './domain/entities/config.entity';
-import { User } from './domain/entities/user.entity';
+import { Config as ConfigEntity } from './domain/entities/config.entity';
+import { User, UserRole } from './domain/entities/user.entity';
 import { DoctorException } from './domain/entities/doctor-exception.entity';
 import { AppointmentHistory } from './domain/entities/appointment-history.entity';
 import { ConfigController } from './presentation/controllers/config.controller';
@@ -56,7 +59,7 @@ import { TypeOrmAppointmentHistoryRepository } from './infrastructure/persistenc
           Doctor,
           Patient,
           Appointment,
-          Config,
+      ConfigEntity,
           User,
           DoctorException,
           AppointmentHistory,
@@ -69,7 +72,7 @@ import { TypeOrmAppointmentHistoryRepository } from './infrastructure/persistenc
       Doctor,
       Patient,
       Appointment,
-      Config,
+      ConfigEntity,
       User,
       DoctorException,
       AppointmentHistory,
@@ -108,4 +111,85 @@ import { TypeOrmAppointmentHistoryRepository } from './infrastructure/persistenc
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements OnModuleInit {
+  private readonly logger = new Logger(AppModule.name);
+
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    @InjectRepository(Doctor)
+    private readonly doctorRepo: Repository<Doctor>,
+    @InjectRepository(Patient)
+    private readonly patientRepo: Repository<Patient>,
+    @InjectRepository(Appointment)
+    private readonly appointmentRepo: Repository<Appointment>,
+    @InjectRepository(ConfigEntity)
+    private readonly configRepo: Repository<ConfigEntity>,
+  ) {}
+
+  async onModuleInit() {
+    const userCount = await this.userRepo.count();
+    if (userCount > 0) {
+      this.logger.log(`DB ya tiene datos (${userCount} usuarios). Seed omitido.`);
+      return;
+    }
+
+    this.logger.log('BD vacía — sembrando datos iniciales...');
+    const passwordHash = await bcrypt.hash('123456', 10);
+
+    const admin = this.userRepo.create({
+      email: 'admin@piedrazul.com',
+      password: passwordHash,
+      firstName: 'Sofia',
+      lastName: 'Paz',
+      role: UserRole.ADMIN,
+    });
+    await this.userRepo.save(admin);
+
+    const doctorUser = this.userRepo.create({
+      email: 'medico@piedrazul.com',
+      password: passwordHash,
+      firstName: 'Juan',
+      lastName: 'Lopez',
+      role: UserRole.DOCTOR,
+    });
+    await this.userRepo.save(doctorUser);
+
+    const doctor = this.doctorRepo.create({
+      name: 'Juan Lopez',
+      specialty: 'Cardiología',
+      scheduleStart: '08:00',
+      scheduleEnd: '18:00',
+      slotDuration: 30,
+    });
+    await this.doctorRepo.save(doctor);
+
+    const patient = this.patientRepo.create({
+      document: '123456789',
+      firstName: 'Luisa',
+      lastName: 'Perez',
+      phone: '3000000000',
+      gender: 'F',
+      email: 'paciente@piedrazul.com',
+      password: passwordHash,
+    });
+    await this.patientRepo.save(patient);
+
+    const config = this.configRepo.create({
+      key: 'appointment_rules',
+      value: JSON.stringify({
+        maxPerDay: 20,
+        minHoursBefore: 2,
+        maxDaysInAdvance: 30,
+        defaultSlotDuration: 30,
+      }),
+      description: 'Reglas generales de agendamiento',
+    });
+    await this.configRepo.save(config);
+
+    this.logger.log('Seed completado.');
+    this.logger.log('admin@piedrazul.com / 123456');
+    this.logger.log('medico@piedrazul.com / 123456');
+    this.logger.log('Paciente: 123456789');
+  }
+}
